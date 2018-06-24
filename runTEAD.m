@@ -1,94 +1,85 @@
-%% 
-% TEAD (Taylor Expansion-based Adaptive Design) Experimental Design Tool %
-% 
-% TEAD is an Taylor expansion-based adaptive design algorithm for efficient  
-% global surrogate model construction. The TEAD algorithm is proposed in a 
-% manuscript entitled "A Taylor expansion-based adaptive design strategy 
-% for global surrogate modeling with applications in groundwater modeling" 
-% by Mo SX, Lu D, Shi XQ, Zhang GN, Ye M, Wu JF, and Wu JC, submitting to 
-% Water Resources Research. The surrogate method containing in this 
-% documentation is Radial Basis Function (RBF) implemented in MATSuMoTo 
-% toolbox developed by Dr. M¨¹ller (M¨¹ller J., (2014). MATSuMoTo Code 
-% Documentation). It is noted that the RBF used in our manuscript mentioned 
-% above is the multi-quadric RBF implemented in the SUMO toolbox 
-% (Gorissen, D., Couckuyt, I., Demeester, P., Dhaene, T., 
-% & Crombecq, K. (2010). A surrogate modeling and adaptive sampling 
-% toolbox for computer based design. Journal of Machine Learning Research,
-% 11(Jul), 2051-2055), which is available at 
-% http://www.sumo.intec.ugent.be/SUMO.
-%%
+% TEAD is an adaptive experimental design algorithm for adaptive selection
+% of training samples to construction surrogate model. The implementation 
+% is based on the following published paper:
+% Mo, S., Lu, D., Shi, X., Zhang, G., Ye, M., Wu, J., & Wu, J. (2017). A 
+% Taylor expansion©\based adaptive design strategy for global surrogate 
+% modeling with applications in groundwater modeling. Water Resources 
+% Research, 53, 10,802¨C10,823. https://doi.org/10.1002/2017WR021622
+%
+% The paper should be referenced whenever the codes are used to 
+% generate results for the user's own research. 
+%
+% The codes of Kriging and radial basis function (RBF) were developed by 
+% Dr. M¨¹ller (M¨¹ller J., (2014). MATSuMoTo Code Documentation.) and 
+% Dr. Lophaven (Lophaven, S.N., Nielsen, H.B., S?ndergaard, J., 2002. 
+% DACE-A MATLAB kriging toolbox, version 2.0.), respectively. 
+% It is noted that the RBF used in our manuscript mentioned above is the 
+% multi-quadric RBF implemented in the SUMO toolbox (Gorissen, D., 
+% Couckuyt, I., Demeester, P., Dhaene, T., & Crombecq, K. (2010). A 
+% surrogate modeling and adaptive sampling toolbox for computer based 
+% design. Journal of Machine Learning Research, 11(Jul), 2051-2055.), 
+% which is available at http://www.sumo.intec.ugent.be/SUMO.
+%
+%
+%----------------*****  Code Author Information *****----------------------
+%   Code Author (Implementation Questions, Bug Reports, etc.): 
+%       Shaoxing Mo: smo@smail.nju.edu.cn
+%**************************************************************************
+%   Please refer with all questions, comments, bug reports, etc. to
+%   smo@smail.nju.edu.cn
+%----------------********************************--------------------------
 
 clear all; clc; close all
 
 currentpath = pwd;
-addpath([currentpath,'\test_functions']);
+addpath([currentpath,'/Kriging']);
+addpath([currentpath,'/RBF']);
+addpath([currentpath,'/TEAD']);
+addpath([currentpath,'/test_functions']);
 
-% example 1: Droplet function
-% example 2: Peaks function
-% example 3: Anisoropy function
-% example 4: Gauss function
-exam = 1;
-if exam == 1 %Droplet function
-    data_file = 'datainput_Droplet';
-    MaxNum = 100; %maximum number of samples
-end
-if exam == 2 %Peaks function
-    data_file = 'datainput_Peaks';
-    MaxNum = 100; 
-end
-if exam == 3 %Anisotropy function
-    data_file = 'datainput_Anisotropy';
-    MaxNum = 150;
-end
-if exam == 4 %Gauss function
-    data_file = 'datainput_Gauss';
-    MaxNum = 80;
-end
+data_file = 'datainput_Gauss';
 
 Data = feval(data_file); % load problem data
 
+Data.surr = 'RBF';   % the surrogate method used. 'Kriging', 'RBF'
+
 [X, Y] = Initial(Data); % generate initial samples
 
-Nnew = Data.dim^2; %number of new samples at each iteration
-RBF.bs = 'cubic';%basis function for RBF. 'linear','TPS', and 'cubic'
-
+tic;
 %run TEAD to adaptively generate inoformative training samples for surrogate construction
-[ Data, RBFdata] = TEAD(X, Y, Data, Nnew, MaxNum); 
-% Data.RMSE: The first to third columns of Data.RMSE are the number of 
-% samples, the global RMSE accuracy evaluated at the validaiton samples, 
-% and the RMSE accuracy evaluated at the newly selected samples at the 
-% current iteration,repectively.
-%
-% Data.Res: the approximation errors at the validation points
-%
+[ Data, dmodel] = TEAD(X, Y, Data); 
+toc;
 
 save results
 
-%% plot results
-figure(1), %plot the RMSE decay 
+
+figure, %plot the RMSE decay 
 plot(Data.RMSE(:,1),Data.RMSE(:,2),'-o');
 xlabel('Number of samples'),ylabel('RMSE');
 title('RMSE decay');
 set(gca, 'FontName', 'Times newman', 'FontSize', 14);
 
 if Data.dim == 2 %plot the 2D surrogate response surface and associated approximation errors
-    level = 51;
-    x = gridsamp([Data.range.min;Data.range.max],level);
-    y = surrogate(x, RBFdata);
-    x1 = reshape(x(:,1),level,level); x2 = reshape(x(:,2),level,level);
-    y = reshape(y,size(x1));
-    Data.Res = reshape(Data.Res,size(x1));
+    x = gridsamp([Data.range.min;Data.range.max],Data.level);
+    evalstr = ['y = ',Data.FunName,'(x);']; eval(evalstr);
+    ypred = surrogate(x, dmodel, Data);
+    res = y - ypred;
+    x1 = reshape(x(:,1),Data.level,Data.level); x2 = reshape(x(:,2),Data.level,Data.level);
+    ypred = reshape(ypred,size(x1));
+    res = reshape(res,size(x1));
     
-    figure(2),
-    surf(x1,x2,y,Data.Res);
+    figure,
+    surf(x1,x2,ypred,res);
     xlabel('\itx_{\rm1}'),ylabel('\itx_{\rm2}'),zlabel('\its{\rm(}\itx{\rm)}')
-    set(gca, 'CLim', [ 1.2*min( Data.Res(:) )  1.2*max( Data.Res(:) ) ]); 
+    set(gca, 'CLim', [ 1.0*min( res(:) )  1.*max( res(:) ) ]); 
     colorbar;
     title('Surrogate response surface and associated approximation errors');
     set(gca, 'FontName', 'Times newman', 'FontSize', 14);
     hold on,
     scatter3( Data.X(:,1), Data.X(:,2), Data.Y,'ow','filled' )
 end
-%%
 
-rmpath([currentpath,'\test_functions']);
+rmpath([currentpath,'/Kriging']);
+rmpath([currentpath,'/RBF']);
+rmpath([currentpath,'/TEAD']);
+rmpath([currentpath,'/test_functions']);
